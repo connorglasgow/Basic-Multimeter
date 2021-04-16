@@ -1,0 +1,7 @@
+.ccsproject
+.cproject
+.launches/
+
+.settings/
+Debug/
+targetConfigs/
