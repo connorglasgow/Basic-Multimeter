@@ -184,11 +184,7 @@ int main(void)
             getsUart0(&data);
             if (enterPressed)
             {
-                //putsUart0("Enter Command : ");
                 enterPressed = false;
-                //putsUart0("Command Entered: ");
-                //putsUart0(data.buffer);
-                //putsUart0("\n\r");
                 parseFields(&data);
 
                 valid = false;
