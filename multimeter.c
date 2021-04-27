@@ -40,6 +40,7 @@
 //for time values for measuring components
 uint32_t time = 0;
 uint64_t average = 0;
+float esr = 0.0;
 //for commandline interface
 extern bool enterPressed;
 //for sprintf stuff
@@ -172,22 +173,19 @@ void measure_capacitance()
 void measure_inductance()
 {
     uint8_t i;
-    for (i = 0; i < 5; i++)
+    for (i = 0; i < 1; i++)
     {
-        setPinValue(MEAS_LR, 1);
-        setPinValue(MEAS_C, 0);
+        esr = measure_esr();
+        setPinValue(MEAS_LR, 0);
+        setPinValue(MEAS_C, 1);
         setPinValue(HIGHSIDE_R, 0);
-        setPinValue(LOWSIDE_R, 0);
-        setPinValue(INTEGRATE, 1);
+        setPinValue(LOWSIDE_R, 1);
+        setPinValue(INTEGRATE, 0);
 
         //turn on measure_lr and turn on lowside_r, test circuit the voltage is rising on 33ohm resistor
         waitMicrosecond(50000);
-        setPinValue(LOWSIDE_R, 1);
-        /*
-         while (COMP_ACSTAT0_R == 1)
-         {
-         }
-         */
+        setPinValue(MEAS_C, 0);
+        setPinValue(MEASURE_LR, 1);
         TIMER1_TAV_R = 0;
         while (COMP_ACSTAT0_R == 0)
         {
@@ -213,18 +211,27 @@ void measure_voltage()
 
 }
 
-void measure_esr()
+float measure_esr()
 {
+    clear();
+    setPinValue(LOWSIDE_R, 1);
+    setPinValue(MEAS_LR, 1);
+    waitMicrosecond(5000);
+
     setAdc0Ss3Mux(7);
-    setAdc0Ss3Log2AverageCount(2);
     uint16_t raw = readAdc0Ss3();
-    //Vdut2 = 3.3*(33/33+esr)
 
     float result = raw;
+    float final ;
 
-    result = result * 100;
-    result = result / 4095;  //get it into proportion of 3.3v
-    result = result * 3.3;   //get it into actual voltage
+    result = result / 4095;     //get it into proportion of 3.3v
+    result = result * 3.3;      //get it into actual voltage
+
+    final = (33*(3.3-result))/result;
+    final = final - 5.012;      //offset so esr is = 0 when i short dut1 and dut2
+
+    esr = final;
+    return final;
 }
 
 //this will set all pins to off
@@ -323,6 +330,7 @@ int main(void)
                 {
                     measure_inductance();
 
+                    /* This isn't right I don't think
                     if (average > 250)
                     {
                         calibrated = average * 1000 / 1785;
@@ -331,6 +339,8 @@ int main(void)
                     {
                         calibrated = average * 100 / 129;
                     }
+                    */
+
                     sprintf(outstr, "Inductance is %0.1fuF\n", calibrated);
                     putsUart0(outstr);
 
