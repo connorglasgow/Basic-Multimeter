@@ -31,12 +31,8 @@
 #define MAX_CHARS 80
 #define MAX_FIELDS 5
 
-//'state machine' for interfacing with which measurement is taken
-//also possibly for AUTO command
-typedef enum _STATE
-{
-    resistance, capacitance, inductance, none
-} STATE;
+//debug
+#define DEBUG
 
 //----------------------------------------
 // TEMP GLOBAL VARS
@@ -46,7 +42,6 @@ uint32_t time = 0;
 uint64_t average = 0;
 //for commandline interface
 extern bool enterPressed;
-STATE state;
 //for sprintf stuff
 char outstr[200];
 
@@ -133,19 +128,50 @@ void measure_resistance()
             average = (time + average) / 2;
         }
     }
-    sprintf(outstr, "average val is %li\n", average);
+
+#ifdef DEBUG
+    sprintf(outstr, "average resistance val is %li\n", average);
     putsUart0(outstr);
+#endif
 }
 
-double timertest()
+void measure_capacitance()
 {
-    //testing stuff
-    //need to remove
-    TIMER1_TAV_R = 0;
-    waitMicrosecond(500000);
-    time = TIMER1_TAV_R;
-    double result = time;
-    return result;
+    uint8_t i;
+    for (i = 0; i < 1; i++)
+    {
+        //set inital pin values
+        setPinValue(MEAS_LR, 0);
+        setPinValue(MEAS_C, 1);
+        setPinValue(HIGHSIDE_R, 1);
+        setPinValue(INTEGRATE, 0);
+        setPinValue(LOWSIDE_R, 1);
+        //wait 50000 microseconds
+        waitMicrosecond(50000);
+        //COMP_ACINTEN_R |= COMP_ACINTEN_IN0;
+
+        //set LOWSIDE_R to low to discharge cap
+        setPinValue(LOWSIDE_R, 0);
+        //set the timer to 0
+        TIMER1_TAV_R = 0;
+        while (COMP_ACSTAT0_R == 0)
+        {
+        }
+        time = TIMER1_TAV_R;
+        if (i == 0)
+        {
+            average = time;
+        }
+        else
+        {
+            average = (time + average) / 2;
+        }
+    }
+
+#ifdef DEBUG
+    sprintf(outstr, "average cap val is %li\n", average);
+    putsUart0(outstr);
+#endif
 }
 
 //this will set all pins to off
@@ -165,8 +191,6 @@ int main(void)
     initUart0();
     initAdc0Ss3();
     setUart0BaudRate(115200, 40e6);
-    //initialize the state to an idle state
-    STATE state = none;
     time = 0;
     float calibrated;
 
@@ -192,8 +216,6 @@ int main(void)
                 if (isCommand(&data, "r", 0)
                         || isCommand(&data, "resistance", 0))
                 {
-                    //set the state to resistance
-                    state = resistance;
                     //measure the resistance
                     measure_resistance();
                     //output the timer values for debugging at this time
@@ -210,14 +232,39 @@ int main(void)
                     {
                         calibrated = average * 5000 / 279801;
                     }
-                    sprintf(outstr, "Calibrated resistance is %0.0f\n",
+                    sprintf(outstr, "Calibrated resistance is %0.0f Ohms\n",
                             calibrated);
                     putsUart0(outstr);
 
-                    //set the state to none
-                    state = none;
                     //set command to valid
                     valid = true;
+                    clear();
+                }
+
+                if (isCommand(&data, "c", 0)
+                        || isCommand(&data, "capacitance", 0))
+                {
+                    measure_capacitance();
+
+                    if (average > 200000000)
+                    {
+                        calibrated = average * 47 / 268465353;
+                    }
+                    else if (average > 120000000)
+                    {
+                        calibrated = average * 22 / 129098857;
+                    }
+                    else
+                    {
+                        calibrated = average * 0.000000170884;
+                    }
+                    sprintf(outstr, "Calibrated capacitance is %0.1fuF\n",
+                            calibrated);
+                    putsUart0(outstr);
+
+                    //valid command
+                    valid = true;
+                    clear();
                 }
 
                 //for easy testing purposes
