@@ -25,7 +25,7 @@
 #define INTEGRATE PORTA,3
 
 //analog input for ADC stuff
-#define AIN1 PORTE,2
+#define AIN7 PORTD,0
 
 //defines for commandline interface
 #define MAX_CHARS 80
@@ -71,7 +71,7 @@ void initHW()
     selectPinPushPullOutput(INTEGRATE);
     selectPinPushPullOutput(INTEGRATE);
     selectPinAnalogInput(COMPARATOR);
-    selectPinAnalogInput(AIN1);
+    selectPinAnalogInput(AIN7);
 
     //initialize comparator
     SYSCTL_RCGCACMP_R |= SYSCTL_RCGCACMP_R0;
@@ -81,7 +81,6 @@ void initHW()
     COMP_ACCTL0_R |= COMP_ACCTL0_ASRCP_REF | COMP_ACCTL0_CINV
             | COMP_ACCTL0_ISEN_RISE; //set comparator to reference voltage, inverted, and on rising edge
     COMP_ACINTEN_R &= ~COMP_ACINTEN_IN0;                 //disable the interrupt
-    //NVIC_EN0_R |= 1 << (INT_COMP0 - 16);                            //interrupt for this implementation
 
     //initalize the timer
     SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1;
@@ -109,9 +108,7 @@ void measure_resistance()
         setPinValue(LOWSIDE_R, 1);
         //wait 50000 microseconds
         waitMicrosecond(50000);
-        //COMP_ACINTEN_R |= COMP_ACINTEN_IN0;
 
-        //set LOWSIDE_R to low to discharge cap
         setPinValue(LOWSIDE_R, 0);
         //set the timer to 0
         TIMER1_TAV_R = 0;
@@ -148,9 +145,7 @@ void measure_capacitance()
         setPinValue(LOWSIDE_R, 1);
         //wait 50000 microseconds
         waitMicrosecond(50000);
-        //COMP_ACINTEN_R |= COMP_ACINTEN_IN0;
 
-        //set LOWSIDE_R to low to discharge cap
         setPinValue(LOWSIDE_R, 0);
         //set the timer to 0
         TIMER1_TAV_R = 0;
@@ -172,6 +167,59 @@ void measure_capacitance()
     sprintf(outstr, "average cap val is %li\n", average);
     putsUart0(outstr);
 #endif
+}
+
+void measure_inductance()
+{
+    uint8_t i;
+    for (i = 0; i < 5; i++)
+    {
+        setPinValue(MEAS_LR, 1);
+        setPinValue(MEAS_C, 0);
+        setPinValue(HIGHSIDE_R, 0);
+        setPinValue(LOWSIDE_R, 0);
+        setPinValue(INTEGRATE, 1);
+
+        //turn on measure_lr and turn on lowside_r, test circuit the voltage is rising on 33ohm resistor
+        waitMicrosecond(50000);
+        setPinValue(LOWSIDE_R, 1);
+        /*
+         while (COMP_ACSTAT0_R == 1)
+         {
+         }
+         */
+        TIMER1_TAV_R = 0;
+        while (COMP_ACSTAT0_R == 0)
+        {
+        }
+        time = TIMER1_TAV_R;
+        if (i == 0)
+        {
+            average = time;
+        }
+        else
+        {
+            average = (time + average) / 2;
+        }
+    }
+#ifdef DEBUG
+    sprintf(outstr, "average inductor val is %li\n", average);
+    putsUart0(outstr);
+#endif
+}
+
+void measure_voltage()
+{
+
+}
+
+void measure_esr()
+{
+    setAdc0Ss3Mux(7);
+    uint16_t value1 = readAdc0Ss3();
+
+    float value2 = (3.3*value1)/4096.0;
+
 }
 
 //this will set all pins to off
@@ -232,8 +280,7 @@ int main(void)
                     {
                         calibrated = average * 5000 / 279801;
                     }
-                    sprintf(outstr, "Calibrated resistance is %0.0f Ohms\n",
-                            calibrated);
+                    sprintf(outstr, "Resistance is %0.0f Ohms\n", calibrated);
                     putsUart0(outstr);
 
                     //set command to valid
@@ -258,11 +305,46 @@ int main(void)
                     {
                         calibrated = average * 0.000000170884;
                     }
-                    sprintf(outstr, "Calibrated capacitance is %0.1fuF\n",
-                            calibrated);
+                    sprintf(outstr, "Capacitance is %0.1fuF\n", calibrated);
                     putsUart0(outstr);
 
                     //valid command
+                    valid = true;
+                    clear();
+                }
+
+                if (isCommand(&data, "l", 0)
+                        || isCommand(&data, "inductance", 0))
+                {
+                    measure_inductance();
+
+                    if (average > 250)
+                    {
+                        calibrated = average * 1000 / 1785;
+                    }
+                    else
+                    {
+                        calibrated = average * 100 / 129;
+                    }
+                    sprintf(outstr, "Inductance is %0.1fuF\n", calibrated);
+                    putsUart0(outstr);
+
+                    valid = true;
+                    clear();
+                }
+
+                if (isCommand(&data, "voltage", 0))
+                {
+                    measure_voltage();
+
+                    valid = true;
+                    clear();
+                }
+
+                if (isCommand(&data, "esr", 0))
+                {
+                    measure_esr();
+
                     valid = true;
                     clear();
                 }
