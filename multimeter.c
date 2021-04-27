@@ -216,10 +216,15 @@ void measure_voltage()
 void measure_esr()
 {
     setAdc0Ss3Mux(7);
-    uint16_t value1 = readAdc0Ss3();
+    setAdc0Ss3Log2AverageCount(2);
+    uint16_t raw = readAdc0Ss3();
+    //Vdut2 = 3.3*(33/33+esr)
 
-    float value2 = (3.3*value1)/4096.0;
+    float result = raw;
 
+    result = result * 100;
+    result = result / 4095;  //get it into proportion of 3.3v
+    result = result * 3.3;   //get it into actual voltage
 }
 
 //this will set all pins to off
