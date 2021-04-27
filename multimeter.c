@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "tm4c123gh6pm.h"
 #include "uart0.h"
 #include "adc0.h"
@@ -185,7 +186,7 @@ void measure_inductance()
         //turn on measure_lr and turn on lowside_r, test circuit the voltage is rising on 33ohm resistor
         waitMicrosecond(50000);
         setPinValue(MEAS_C, 0);
-        setPinValue(MEASURE_LR, 1);
+        setPinValue(MEAS_LR, 1);
         TIMER1_TAV_R = 0;
         while (COMP_ACSTAT0_R == 0)
         {
@@ -222,13 +223,13 @@ float measure_esr()
     uint16_t raw = readAdc0Ss3();
 
     float result = raw;
-    float final ;
+    float final;
 
     result = result / 4095;     //get it into proportion of 3.3v
     result = result * 3.3;      //get it into actual voltage
 
-    final = (33*(3.3-result))/result;
-    final = final - 5.012;      //offset so esr is = 0 when i short dut1 and dut2
+    final = (33 * (3.3 - result)) / result;
+    final = final - 5.012;     //offset so esr is = 0 when i short dut1 and dut2
 
     esr = final;
     return final;
@@ -331,17 +332,24 @@ int main(void)
                     measure_inductance();
 
                     /* This isn't right I don't think
-                    if (average > 250)
-                    {
-                        calibrated = average * 1000 / 1785;
-                    }
-                    else
-                    {
-                        calibrated = average * 100 / 129;
-                    }
-                    */
+                     if (average > 250)
+                     {
+                     calibrated = average * 1000 / 1785;
+                     }
+                     else
+                     {
+                     calibrated = average * 100 / 129;
+                     }
+                     */
+                    float time_constant = ((float) time) / 40000000; //time constant is timer value divided by clock rate of 40e6
+                    float l_current = 2.469 / (33 + esr); //curent across inductor is reference voltage divided by the total resistance
 
-                    sprintf(outstr, "Inductance is %0.1fuF\n", calibrated);
+                    //l = (-r*t)/(log of (1-r*current/3.3)
+                    calibrated = -((33 + esr) * time_constant)
+                            / (logf(1 - ((33 + esr) * l_current) / 3.3));
+                    //one last bit of calibration math
+                    calibrated = calibrated * 37 / 85;
+                    sprintf(outstr, "Inductance is %0.1f uH\n", calibrated);
                     putsUart0(outstr);
 
                     valid = true;
@@ -359,6 +367,9 @@ int main(void)
                 if (isCommand(&data, "esr", 0))
                 {
                     measure_esr();
+
+                    sprintf(outstr, "ESR is %0.1f ohms\n", esr);
+                    putsUart0(outstr);
 
                     valid = true;
                     clear();
