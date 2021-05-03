@@ -46,6 +46,7 @@ float esr = 0.0;
 extern bool enterPressed;
 //for sprintf stuff
 char outstr[200];
+bool auto_cmd;
 
 //----------------------------------------
 //  Functions
@@ -207,8 +208,14 @@ void measure_inductance()
 #endif
 }
 
-void measure_voltage()
+float measure_voltage()
 {
+    setAdc0Ss3Mux(7);
+    float raw = readAdc0Ss3();
+
+    raw = raw / 4096;
+    raw = raw * 3.3;
+    return raw;
 
 }
 
@@ -245,6 +252,11 @@ void clear()
     setPinValue(INTEGRATE, 0);
 }
 
+void run_auto()
+{
+
+}
+
 int main(void)
 {
     USER_DATA data;
@@ -254,6 +266,7 @@ int main(void)
     setUart0BaudRate(115200, 40e6);
     time = 0;
     float calibrated;
+    float voltage;
 
     //clears the 'buffer' that seems to show up at the start
     clear();
@@ -358,7 +371,9 @@ int main(void)
 
                 if (isCommand(&data, "voltage", 0))
                 {
-                    measure_voltage();
+                    voltage = measure_voltage();
+                    sprintf(outstr, "Voltage is %0.2f volts\n", voltage);
+                    putsUart0(outstr);
 
                     valid = true;
                     clear();
@@ -373,6 +388,22 @@ int main(void)
 
                     valid = true;
                     clear();
+                }
+
+                else if (isCommand(&data, "auto", 0))
+                {
+                    run_auto();
+                    auto_cmd = true;
+
+                    valid = true;
+                    clear();
+                }
+
+                else if (isCommand(&data, "reset", 0))
+                {
+                    //reset the board
+                    NVIC_APINT_R = NVIC_APINT_VECTKEY | NVIC_APINT_VECT_RESET;
+                    valid = true;
                 }
 
                 //for easy testing purposes
