@@ -46,7 +46,10 @@ float esr = 0.0;
 extern bool enterPressed;
 //for sprintf stuff
 char outstr[200];
-bool auto_cmd;
+//other globals
+bool auto_cmd = false;
+float calibrated;
+float voltage;
 
 //----------------------------------------
 //  Functions
@@ -135,7 +138,7 @@ void measure_resistance()
 #endif
 }
 
-void measure_capacitance()
+bool measure_capacitance()
 {
     uint8_t i;
     for (i = 0; i < 1; i++)
@@ -152,10 +155,14 @@ void measure_capacitance()
         setPinValue(LOWSIDE_R, 0);
         //set the timer to 0
         TIMER1_TAV_R = 0;
-        while (COMP_ACSTAT0_R == 0)
+        while (COMP_ACSTAT0_R == 0 && TIMER1_TAV_R < 250000000)
         {
         }
         time = TIMER1_TAV_R;
+        if (TIMER1_TAV_R > 250000000)
+        {
+            return false;
+        }
         if (i == 0)
         {
             average = time;
@@ -170,12 +177,13 @@ void measure_capacitance()
     sprintf(outstr, "average cap val is %li\n", average);
     putsUart0(outstr);
 #endif
+    return true;
 }
 
-void measure_inductance()
+bool measure_inductance()
 {
     uint8_t i;
-    for (i = 0; i < 1; i++)
+    for (i = 0; i < 10; i++)
     {
         esr = measure_esr();
         setPinValue(MEAS_LR, 0);
@@ -189,10 +197,14 @@ void measure_inductance()
         setPinValue(MEAS_C, 0);
         setPinValue(MEAS_LR, 1);
         TIMER1_TAV_R = 0;
-        while (COMP_ACSTAT0_R == 0)
+        while (COMP_ACSTAT0_R == 0 && TIMER1_TAV_R < 20000)
         {
         }
         time = TIMER1_TAV_R;
+        if (TIMER1_TAV_R > 20000 || TIMER1_TAV_R < 100)
+        {
+            return false;
+        }
         if (i == 0)
         {
             average = time;
@@ -206,6 +218,7 @@ void measure_inductance()
     sprintf(outstr, "average inductor val is %li\n", average);
     putsUart0(outstr);
 #endif
+    return true;
 }
 
 float measure_voltage()
@@ -254,6 +267,89 @@ void clear()
 
 void run_auto()
 {
+    /*
+     * Process for auto
+     * run the inductance command
+     * if a value is returned, it is an inductor
+     * if the comparator is never triggered/timer times out
+     *      check esr
+     *          if esr is high run the resistor command
+     *          if esr is low run capacitor command
+     * done
+     */
+    if (measure_inductance())
+    {
+        putsUart0("Auto detected an inductor\n");
+        measure_esr();
+        print_inductance();
+        return;
+    }
+    else if (measure_capacitance())
+    {
+        putsUart0("Auto detected a capacitor\n");
+        measure_capacitance();
+        print_capacitance();
+        return;
+    }
+    else
+    {
+        putsUart0("Auto detected a resistor\n");
+        measure_resistance();
+        print_resistance();
+        return;
+    }
+
+}
+
+void print_inductance()
+{
+    float time_constant = ((float) time) / 40000000; //time constant is timer value divided by clock rate of 40e6
+    float l_current = 2.469 / (33 + esr); //curent across inductor is reference voltage divided by the total resistance
+
+    //l = (-r*t)/(log of (1-r*current/3.3)
+    calibrated = -((33 + esr) * time_constant)
+            / (logf(1 - ((33 + esr) * l_current) / 3.3));
+    //one last bit of calibration math
+    calibrated = calibrated * 588928;
+    sprintf(outstr, "Inductance is %0.2f uH\n", calibrated);
+    putsUart0(outstr);
+
+}
+
+void print_capacitance()
+{
+    if (average > 200000000)
+    {
+        calibrated = average * 47 / 268465353;
+    }
+    else if (average > 120000000)
+    {
+        calibrated = average * 22 / 129098857;
+    }
+    else
+    {
+        calibrated = average * 0.000000170884;
+    }
+    sprintf(outstr, "Capacitance is %0.1fuF\n", calibrated);
+    putsUart0(outstr);
+}
+
+void print_resistance()
+{
+    if (average > 5000000)
+    {
+        calibrated = average * 98400 / 5751721;
+    }
+    else if (average < 15000)
+    {
+        calibrated = average * 217 / 10747;
+    }
+    else
+    {
+        calibrated = average * 5000 / 279801;
+    }
+    sprintf(outstr, "Resistance is %0.0f Ohms\n", calibrated);
+    putsUart0(outstr);
 
 }
 
@@ -265,8 +361,6 @@ int main(void)
     initAdc0Ss3();
     setUart0BaudRate(115200, 40e6);
     time = 0;
-    float calibrated;
-    float voltage;
 
     //clears the 'buffer' that seems to show up at the start
     clear();
@@ -292,24 +386,8 @@ int main(void)
                 {
                     //measure the resistance
                     measure_resistance();
-                    //output the timer values for debugging at this time
+                    print_resistance();
 
-                    if (average > 5000000)
-                    {
-                        calibrated = average * 98400 / 5751721;
-                    }
-                    else if (average < 15000)
-                    {
-                        calibrated = average * 217 / 10747;
-                    }
-                    else
-                    {
-                        calibrated = average * 5000 / 279801;
-                    }
-                    sprintf(outstr, "Resistance is %0.0f Ohms\n", calibrated);
-                    putsUart0(outstr);
-
-                    //set command to valid
                     valid = true;
                     clear();
                 }
@@ -318,23 +396,8 @@ int main(void)
                         || isCommand(&data, "capacitance", 0))
                 {
                     measure_capacitance();
+                    print_capacitance();
 
-                    if (average > 200000000)
-                    {
-                        calibrated = average * 47 / 268465353;
-                    }
-                    else if (average > 120000000)
-                    {
-                        calibrated = average * 22 / 129098857;
-                    }
-                    else
-                    {
-                        calibrated = average * 0.000000170884;
-                    }
-                    sprintf(outstr, "Capacitance is %0.1fuF\n", calibrated);
-                    putsUart0(outstr);
-
-                    //valid command
                     valid = true;
                     clear();
                 }
@@ -343,27 +406,8 @@ int main(void)
                         || isCommand(&data, "inductance", 0))
                 {
                     measure_inductance();
-
-                    /* This isn't right I don't think
-                     if (average > 250)
-                     {
-                     calibrated = average * 1000 / 1785;
-                     }
-                     else
-                     {
-                     calibrated = average * 100 / 129;
-                     }
-                     */
-                    float time_constant = ((float) time) / 40000000; //time constant is timer value divided by clock rate of 40e6
-                    float l_current = 2.469 / (33 + esr); //curent across inductor is reference voltage divided by the total resistance
-
-                    //l = (-r*t)/(log of (1-r*current/3.3)
-                    calibrated = -((33 + esr) * time_constant)
-                            / (logf(1 - ((33 + esr) * l_current) / 3.3));
-                    //one last bit of calibration math
-                    calibrated = calibrated * 37 / 85;
-                    sprintf(outstr, "Inductance is %0.1f uH\n", calibrated);
-                    putsUart0(outstr);
+                    measure_esr();
+                    print_inductance();
 
                     valid = true;
                     clear();
@@ -392,11 +436,12 @@ int main(void)
 
                 else if (isCommand(&data, "auto", 0))
                 {
-                    run_auto();
                     auto_cmd = true;
+                    run_auto();
 
                     valid = true;
                     clear();
+                    auto_cmd = false;
                 }
 
                 else if (isCommand(&data, "reset", 0))
